@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
+#include <stdbool.h>
 
 typedef struct {
     float x, y, z;       // curr position
@@ -21,7 +22,12 @@ void draw();
 
 int num_particles = 100;
 Particle* particles;
-const float GRAVITY = -0.04f;
+const float GRAVITY = -0.098f;
+const float sphere_radius = 1.0f;
+const bool boolsphere = true; 
+const float perturbation_factor = 0.01f; 
+const float slowdown_factor = 0.5f;
+
 
 void interpolate_color(float t, float* r, float* g, float* b) {
     float r_low = 0.678f, g_low = 0.847f, b_low = 1.0f;
@@ -82,8 +88,14 @@ void initialize_particles(Particle* particles, int num_particles) {
     }
 }
 
+float random_perturbation() {
+    return ((float)rand() / RAND_MAX) * 2.0f - 1.0f;
+}
+
 void update_particles(Particle* particles, int num_particles, float dt) {
     for (int i = 0; i < num_particles; i++) {
+        particles[i].ay = GRAVITY;
+
         float temp_x = particles[i].x;
         float temp_y = particles[i].y;
         float temp_z = particles[i].z;
@@ -110,7 +122,7 @@ void update_particles(Particle* particles, int num_particles, float dt) {
             
             // linear algebra to calculate the collisions 
             if (distance < min_distance) { // collision here 
-                float nx = dx / distance; // normal vectors
+                float nx = dx / distance; 
                 float ny = dy / distance; 
                 float nz = dz / distance; 
 
@@ -122,17 +134,30 @@ void update_particles(Particle* particles, int num_particles, float dt) {
                 float vy2 = (particles[j].y - particles[j].y_prev) / dt;
                 float vz2 = (particles[j].z - particles[j].z_prev) / dt;
 
-                // Calculate relative velocity in terms of the normal direction
-                float rel_vel = vx1 * nx + vy1 * ny + vz1 * nz - (vx2 * nx + vy2 * ny + vz2 * nz);
+                // normal direction
+                float rel_vel = (vx1 - vx2) * nx + (vy1 - vy2) * ny + (vz1 - vz2) * nz;
 
-                // change velocities
-                particles[i].x_prev = particles[i].x - (vx1 - rel_vel * nx) * dt;
-                particles[i].y_prev = particles[i].y - (vy1 - rel_vel * ny) * dt;
-                particles[i].z_prev = particles[i].z - (vz1 - rel_vel * nz) * dt;
+                // reflect relative velocity
+                float impulse = 2.0f * rel_vel / (particles[i].radius + particles[j].radius);
 
-                particles[j].x_prev = particles[j].x - (vx2 + rel_vel * nx) * dt;
-                particles[j].y_prev = particles[j].y - (vy2 + rel_vel * ny) * dt;
-                particles[j].z_prev = particles[j].z - (vz2 + rel_vel * nz) * dt;
+                // Change previous positions
+                particles[i].x_prev = particles[i].x - impulse * nx * dt;
+                particles[i].y_prev = particles[i].y - impulse * ny * dt;
+                particles[i].z_prev = particles[i].z - impulse * nz * dt;
+
+                particles[j].x_prev = particles[j].x + impulse * nx * dt;
+                particles[j].y_prev = particles[j].y + impulse * ny * dt;
+                particles[j].z_prev = particles[j].z + impulse * nz * dt;
+
+                // Apply slowdown factor to accelerations
+                float slowdown_factor = 0.5f;
+                particles[i].ax *= slowdown_factor;
+                particles[i].ay *= slowdown_factor;
+                particles[i].az *= slowdown_factor;
+
+                particles[j].ax *= slowdown_factor;
+                particles[j].ay *= slowdown_factor;
+                particles[j].az *= slowdown_factor;
 
                 // Correct positions to prevent overlap
                 float overlap = 0.5f * (min_distance - distance);
@@ -146,30 +171,59 @@ void update_particles(Particle* particles, int num_particles, float dt) {
             }
         }
 
-        // boundary conditions for the walls of the simulation tool
-        if (particles[i].x < -1.0f + particles[i].radius) {
-            particles[i].x = -1.0f + particles[i].radius;
-            particles[i].ax *= -0.3;
-        } else if (particles[i].x > 1.0f - particles[i].radius) {
-            particles[i].x = 1.0f - particles[i].radius;
-            particles[i].ax *= -0.3;
-        }
+        if (boolsphere) {
+            float dist_from_center = sqrt(particles[i].x * particles[i].x + 
+                                  particles[i].y * particles[i].y + 
+                                  particles[i].z * particles[i].z);
+    
+            if (dist_from_center > sphere_radius - particles[i].radius) {
+                float penetration = dist_from_center - (sphere_radius - particles[i].radius);
+                float nx = particles[i].x / dist_from_center;
+                float ny = particles[i].y / dist_from_center;
+                float nz = particles[i].z / dist_from_center;
 
-        if (particles[i].y < -1.0f + particles[i].radius) {
-            particles[i].y = -1.0f + particles[i].radius;
-            particles[i].ay *= -0.3;
-        } else if (particles[i].y > 1.0f - particles[i].radius) {
-            particles[i].y = 1.0f - particles[i].radius;
-            particles[i].ay *= -0.3;
-        }
+                particles[i].x -= penetration * nx;
+                particles[i].y -= penetration * ny;
+                particles[i].z -= penetration * nz;
 
-        if (particles[i].z < -1.0f + particles[i].radius) {
-            particles[i].z = -1.0f + particles[i].radius;
-            particles[i].az *= -0.3;
-        } else if (particles[i].z > 1.0f - particles[i].radius) {
-            particles[i].z = 1.0f - particles[i].radius;
-            particles[i].az *= -0.3;
+                particles[i].x_prev = particles[i].x + random_perturbation() * perturbation_factor;
+                particles[i].y_prev = particles[i].y + random_perturbation() * perturbation_factor;
+                particles[i].z_prev = particles[i].z + random_perturbation() * perturbation_factor;
+
+                particles[i].ax *= slowdown_factor;
+                particles[i].ay *= slowdown_factor;
+                particles[i].az *= slowdown_factor;
+            }
+        } else {
+            // boundary conditions for the walls of the simulation tool
+            float boundary_cushion = 0.1f; 
+            float perturbation_factor = 0.01f; 
+
+            if (particles[i].x < -1.0f + particles[i].radius) {
+                particles[i].x = -1.0f + particles[i].radius;
+                particles[i].x_prev = particles[i].x + random_perturbation() * perturbation_factor;
+            } else if (particles[i].x > 1.0f - particles[i].radius) {
+                particles[i].x = 1.0f - particles[i].radius;
+                particles[i].x_prev = particles[i].x + random_perturbation() * perturbation_factor;
+            }
+
+            if (particles[i].y < -1.0f + particles[i].radius) {
+                particles[i].y = -1.0f + particles[i].radius;
+                particles[i].y_prev = particles[i].y + random_perturbation() * perturbation_factor;
+            } else if (particles[i].y > 1.0f - particles[i].radius) {
+                particles[i].y = 1.0f - particles[i].radius;
+                particles[i].y_prev = particles[i].y + random_perturbation() * perturbation_factor;
+            }
+
+            if (particles[i].z < -1.0f + particles[i].radius) {
+                particles[i].z = -1.0f + particles[i].radius;
+                particles[i].z_prev = particles[i].z + random_perturbation() * perturbation_factor;
+            } else if (particles[i].z > 1.0f - particles[i].radius) {
+                particles[i].z = 1.0f - particles[i].radius;
+                particles[i].z_prev = particles[i].z + random_perturbation() * perturbation_factor;
+            }
         }
+        
     }
 }
 
@@ -200,55 +254,62 @@ void draw_particles(Particle* particles, int num_particles) {
 }
 
 void draw_boundary(){
-    glColor3f(1.0f, 1.0f, 1.0f); // Set boundary color to white
-    glBegin(GL_LINES);
+    if (boolsphere) {
+        GLUquadric* quad = gluNewQuadric();
+        glColor4f(1.0f, 1.0f, 1.0f, 0.1f); 
+        gluQuadricDrawStyle(quad, GLU_LINE); 
+        gluSphere(quad, 1.0f, 32, 32); 
+        gluDeleteQuadric(quad);
+    } else {
+        glColor3f(1.0f, 1.0f, 1.0f); 
+        glBegin(GL_LINES);
 
-    // Draw lines for the boundary box
-    // Bottom face
-    glVertex3f(-1.0f, -1.0f, -1.0f);
-    glVertex3f(1.0f, -1.0f, -1.0f);
+        // bottom
+        glVertex3f(-1.0f, -1.0f, -1.0f);
+        glVertex3f(1.0f, -1.0f, -1.0f);
 
-    glVertex3f(1.0f, -1.0f, -1.0f);
-    glVertex3f(1.0f, -1.0f, 1.0f);
+        glVertex3f(1.0f, -1.0f, -1.0f);
+        glVertex3f(1.0f, -1.0f, 1.0f);
 
-    glVertex3f(1.0f, -1.0f, 1.0f);
-    glVertex3f(-1.0f, -1.0f, 1.0f);
+        glVertex3f(1.0f, -1.0f, 1.0f);
+        glVertex3f(-1.0f, -1.0f, 1.0f);
 
-    glVertex3f(-1.0f, -1.0f, 1.0f);
-    glVertex3f(-1.0f, -1.0f, -1.0f);
+        glVertex3f(-1.0f, -1.0f, 1.0f);
+        glVertex3f(-1.0f, -1.0f, -1.0f);
 
-    // Top face
-    glVertex3f(-1.0f, 1.0f, -1.0f);
-    glVertex3f(1.0f, 1.0f, -1.0f);
+        // top
+        glVertex3f(-1.0f, 1.0f, -1.0f);
+        glVertex3f(1.0f, 1.0f, -1.0f);
 
-    glVertex3f(1.0f, 1.0f, -1.0f);
-    glVertex3f(1.0f, 1.0f, 1.0f);
+        glVertex3f(1.0f, 1.0f, -1.0f);
+        glVertex3f(1.0f, 1.0f, 1.0f);
 
-    glVertex3f(1.0f, 1.0f, 1.0f);
-    glVertex3f(-1.0f, 1.0f, 1.0f);
+        glVertex3f(1.0f, 1.0f, 1.0f);
+        glVertex3f(-1.0f, 1.0f, 1.0f);
 
-    glVertex3f(-1.0f, 1.0f, 1.0f);
-    glVertex3f(-1.0f, 1.0f, -1.0f);
+        glVertex3f(-1.0f, 1.0f, 1.0f);
+        glVertex3f(-1.0f, 1.0f, -1.0f);
 
-    // Vertical lines
-    glVertex3f(-1.0f, -1.0f, -1.0f);
-    glVertex3f(-1.0f, 1.0f, -1.0f);
+        // vertical
+        glVertex3f(-1.0f, -1.0f, -1.0f);
+        glVertex3f(-1.0f, 1.0f, -1.0f);
 
-    glVertex3f(1.0f, -1.0f, -1.0f);
-    glVertex3f(1.0f, 1.0f, -1.0f);
+        glVertex3f(1.0f, -1.0f, -1.0f);
+        glVertex3f(1.0f, 1.0f, -1.0f);
 
-    glVertex3f(1.0f, -1.0f, 1.0f);
-    glVertex3f(1.0f, 1.0f, 1.0f);
+        glVertex3f(1.0f, -1.0f, 1.0f);
+        glVertex3f(1.0f, 1.0f, 1.0f);
 
-    glVertex3f(-1.0f, -1.0f, 1.0f);
-    glVertex3f(-1.0f, 1.0f, 1.0f);
+        glVertex3f(-1.0f, -1.0f, 1.0f);
+        glVertex3f(-1.0f, 1.0f, 1.0f);
 
-    glEnd();
+        glEnd();
+    }
 }
 
 void initOpenGL() {
     glEnable(GL_DEPTH_TEST);
-    glEnable(GL_BLEND); // Enable blending
+    glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glClearColor(0.0, 0.0, 0.0, 1.0);
 }
@@ -256,18 +317,22 @@ void initOpenGL() {
 void draw() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     
-    // Setup camera
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
     gluPerspective(45.0, 800.0 / 600.0, 1.0, 100.0);
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
-    gluLookAt(3.0, 3.0, 3.0,  // Camera position
+    if (boolsphere) {
+        gluLookAt(2.0, 2.0, 2.0,  // Camera position
           0.0, 0.0, 0.0,  // Look-at point
-          0.0, 1.0, 0.0); // Up direction
+          0.0, 0.0, 1.0); // Up direction
+    } else {
+        gluLookAt(3.0, 3.0, 3.0,  // Camera position
+            0.0, 0.0, 0.0,  // Look-at point
+            0.0, 1.0, 0.0); // Up direction
+    }
     draw_boundary();
 
-    // Draw particles
     draw_particles(particles, num_particles);
 
     glFlush();
