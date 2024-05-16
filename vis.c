@@ -24,13 +24,11 @@ void draw();
 // void render_text(const char* text, float x, float y, float scale, float r, float g, float b);
 
 
-int num_particles = 1000;
+int num_particles = 25;
 Particle* particles;
-const float GRAVITY = -0.098f;
-const float sphere_radius = 1.0f;
+const float GRAVITY = -0.98f;
+const float sphere_radius = 3.0f;
 const bool boolsphere = false; 
-const float perturbation_factor = 0.01f; 
-const float slowdown_factor = 0.5f;
 const float time_step = 0.01f;
 
 
@@ -119,7 +117,7 @@ void initialize_particles(Particle* particles, int num_particles) {
         // particles[i].ay = ((float)rand() / RAND_MAX) * 0.05f - 0.01f;
         // particles[i].az = ((float)rand() / RAND_MAX) * 0.05f - 0.01f;
         particles[i].ax = 0.0f;
-        particles[i].ay = GRAVITY;
+        particles[i].ay = 0.0f;
         particles[i].az = 0.0f;
         particles[i].radius = 0.03f;
     }
@@ -141,146 +139,117 @@ bool detect_collision(Particle *p1, Particle *p2) {
 }
 
 void fix_position(Particle *p1, Particle *p2) {
+    // calculate the delta vector based on the difference of particles
     float dx = p1->x - p2->x;
     float dy = p1->y - p2->y;
     float dz = p1->z - p2->z;
 
     float distance = sqrt(dx * dx + dy * dy + dz * dz);
-    float overlap = 0.5f * (distance - p1->radius - p2->radius);
 
-    p1->x -= overlap * (dx / distance);
-    p1->y -= overlap * (dy / distance);
-    p1->z -= overlap * (dz / distance);
+    // normalize the vectors
+    float nx = dx / distance;
+    float ny = dy / distance;
+    float nz = dz / distance;
 
-    p2->x += overlap * (dx / distance);
-    p2->y += overlap * (dy / distance);
-    p2->z += overlap * (dz / distance);
+    // calculate delta 
 
-    float vx1 = (p1->x - p1->x_prev) / time_step;
-    float vy1 = (p1->y - p1->y_prev) / time_step;
-    float vz1 = (p1->z - p1->z_prev) / time_step;
+    float delta = p1->radius + p2->radius - distance;
 
-    float vx2 = (p2->x - p2->x_prev) / time_step;
-    float vy2 = (p2->y - p2->y_prev) / time_step;
-    float vz2 = (p2->z - p2->z_prev) / time_step;
+    // fix the norm
+    float pen = 0.5f;
+    nx *= pen;
+    ny *= pen;
+    nz *= pen;
 
-    float relative_vx = vx1 - vx2;
-    float relative_vy = vy1 - vy2;
-    float relative_vz = vz1 - vz2;
+    // update the values
+    p1->x += nx;
+    p1->y += ny;
+    p1->z += nz;
 
-    float dot_product = dx * relative_vx + dy * relative_vy + dz * relative_vz;
-    float collision_norm = dx * dx + dy * dy + dz * dz;
-
-    float impulse = (1 + 0.5f) * dot_product / collision_norm;
-
-    p1->x_prev = p1->x + impulse * dx;
-    p1->y_prev = p1->y + impulse * dy;
-    p1->z_prev = p1->z + impulse * dz;
-
-    p2->x_prev = p2->x - impulse * dx;
-    p2->y_prev = p2->y - impulse * dy;
-    p2->z_prev = p2->z - impulse * dz;
-
-    float new_vx1 = p1->x - p1->x_prev;
-    float new_vy1 = p1->y - p1->y_prev;
-    float new_vz1 = p1->z - p1->z_prev;
-
-    float new_vx2 = p2->x - p2->x_prev;
-    float new_vy2 = p2->y - p2->y_prev;
-    float new_vz2 = p2->z - p2->z_prev;
-
-    p1->ax = (new_vx1 - vx1) / (time_step * time_step);
-    p1->ay = (new_vy1 - vy1) / (time_step * time_step) + GRAVITY;
-    p1->az = (new_vz1 - vz1) / (time_step * time_step);
-
-    p2->ax = (new_vx2 - vx2) / (time_step * time_step);
-    p2->ay = (new_vy2 - vy2) / (time_step * time_step) + GRAVITY;
-    p2->az = (new_vz2 - vz2) / (time_step * time_step);
+    p2->x -= nx;
+    p2->y -= ny;
+    p2->z -= nz;
 
     p1->collision_count++;
     p2->collision_count++;
 }
 
 void update_particles(Particle* particles, int num_particles, float dt) {
+    // apply forces to particles
+
     for (int i = 0; i < num_particles; i++) {
-        particles[i].ay = GRAVITY;
+        particles[i].ay += GRAVITY;
+    }
+    
+    // handle collisions
 
-        float temp_x = particles[i].x;
-        float temp_y = particles[i].y;
-        float temp_z = particles[i].z;
-
-        // update with verlet integration
-        particles[i].x += (particles[i].x - particles[i].x_prev) + particles[i].ax * dt * dt;
-        particles[i].y += (particles[i].y - particles[i].y_prev) + particles[i].ay * dt * dt;
-        particles[i].z += (particles[i].z - particles[i].z_prev) + particles[i].az * dt * dt;
-
-        // update prev with temp
-        particles[i].x_prev = temp_x;
-        particles[i].y_prev = temp_y;
-        particles[i].z_prev = temp_z;
-
-
-        // collision detection but future work use other algorithm to detect closest particles
-        for (int j = i+1; j < num_particles; j++) {
-            if (detect_collision(&particles[i], &particles[j])) {
-                fix_position(&particles[i], &particles[j]);
+    for (int i = 0; i < num_particles; i++) {
+        for (int j = 0; j < num_particles; j++) {
+            if (i != j) {
+                if (detect_collision(&particles[i], &particles[j])) {
+                    fix_position(&particles[i], &particles[j]);
+                }
             }
         }
+    }
 
-        if (boolsphere) {
-            float dist_from_center = sqrt(particles[i].x * particles[i].x + 
-                                  particles[i].y * particles[i].y + 
-                                  particles[i].z * particles[i].z);
+    // apply the constraints of the boundary
     
-            if (dist_from_center > sphere_radius - particles[i].radius) {
-                float penetration = dist_from_center - (sphere_radius - particles[i].radius);
-                float nx = particles[i].x / dist_from_center;
-                float ny = particles[i].y / dist_from_center;
-                float nz = particles[i].z / dist_from_center;
-
-                particles[i].x -= penetration * nx;
-                particles[i].y -= penetration * ny;
-                particles[i].z -= penetration * nz;
-
-                particles[i].x_prev = particles[i].x + random_perturbation() * perturbation_factor;
-                particles[i].y_prev = particles[i].y + random_perturbation() * perturbation_factor;
-                particles[i].z_prev = particles[i].z + random_perturbation() * perturbation_factor;
-
-                particles[i].ax *= slowdown_factor;
-                particles[i].ay *= slowdown_factor;
-                particles[i].az *= slowdown_factor;
-            }
+    for (int i = 0; i < num_particles; i++) {
+        if (boolsphere) {
+            continue; // fix this later on to handle sphere
         } else {
-            // boundary conditions for the walls of the simulation tool
-            float boundary_cushion = 0.1f; 
-            float perturbation_factor = 0.01f; 
-
             if (particles[i].x < -1.0f + particles[i].radius) {
                 particles[i].x = -1.0f + particles[i].radius;
-                particles[i].x_prev = particles[i].x + random_perturbation() * perturbation_factor;
+                particles[i].x_prev = particles[i].x + (particles[i].x - particles[i].x_prev);
             } else if (particles[i].x > 1.0f - particles[i].radius) {
                 particles[i].x = 1.0f - particles[i].radius;
-                particles[i].x_prev = particles[i].x + random_perturbation() * perturbation_factor;
+                particles[i].x_prev = particles[i].x + (particles[i].x - particles[i].x_prev);
             }
 
             if (particles[i].y < -1.0f + particles[i].radius) {
                 particles[i].y = -1.0f + particles[i].radius;
-                particles[i].y_prev = particles[i].y + random_perturbation() * perturbation_factor;
+                particles[i].y_prev = particles[i].y + (particles[i].y - particles[i].y_prev);
             } else if (particles[i].y > 1.0f - particles[i].radius) {
                 particles[i].y = 1.0f - particles[i].radius;
-                particles[i].y_prev = particles[i].y + random_perturbation() * perturbation_factor;
+                particles[i].y_prev = particles[i].y + (particles[i].y - particles[i].y_prev);
             }
 
             if (particles[i].z < -1.0f + particles[i].radius) {
                 particles[i].z = -1.0f + particles[i].radius;
-                particles[i].z_prev = particles[i].z + random_perturbation() * perturbation_factor;
+                particles[i].z_prev = particles[i].z + (particles[i].z - particles[i].z_prev);
             } else if (particles[i].z > 1.0f - particles[i].radius) {
                 particles[i].z = 1.0f - particles[i].radius;
-                particles[i].z_prev = particles[i].z + random_perturbation() * perturbation_factor;
+                particles[i].z_prev = particles[i].z + (particles[i].z - particles[i].z_prev);
             }
         }
-        
     }
+
+    // now we update our positions and acceleration
+    for (int i = 0; i < num_particles; i++) {
+        float disp_x = particles[i].x - particles[i].x_prev;
+        float disp_y = particles[i].y - particles[i].y_prev;
+        float disp_z = particles[i].z - particles[i].z_prev;
+
+        particles[i].x_prev = particles[i].x;
+        particles[i].y_prev = particles[i].y;
+        particles[i].z_prev = particles[i].z;
+
+        particles[i].ax *= dt * dt;
+        particles[i].ay *= dt * dt;
+        particles[i].az *= dt * dt;
+
+        particles[i].x += disp_x + particles[i].ax;
+        particles[i].y += disp_y + particles[i].ay;
+        particles[i].z += disp_z + particles[i].az;
+
+        // reset acceleration
+        particles[i].ax = 0.0f;
+        particles[i].ay = 0.0f;
+        particles[i].az = 0.0f;
+    }
+
+
 }
 
 void draw_particles(Particle* particles, int num_particles) {
