@@ -24,9 +24,9 @@ void draw();
 // void render_text(const char* text, float x, float y, float scale, float r, float g, float b);
 
 
-int num_particles = 25;
+int num_particles = 300;
 Particle* particles;
-const float GRAVITY = -0.98f;
+const float GRAVITY = -1.98f;
 const float sphere_radius = 3.0f;
 const bool boolsphere = false; 
 const float time_step = 0.01f;
@@ -156,10 +156,9 @@ void fix_position(Particle *p1, Particle *p2) {
     float delta = p1->radius + p2->radius - distance;
 
     // fix the norm
-    float pen = 0.5f;
-    nx *= pen;
-    ny *= pen;
-    nz *= pen;
+    nx *= (delta * 0.5f);
+    ny *= (delta * 0.5f);
+    nz *= (delta * 0.5f);
 
     // update the values
     p1->x += nx;
